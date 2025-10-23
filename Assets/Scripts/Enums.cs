@@ -10,7 +10,8 @@ using System.Text;
 public enum BonusType
 {
     None,
-    DestroyWholeRowColumn
+    DestroyWholeRowColumn,
+     ClearAllOfColor // Thêm dòng này
 }
 
 

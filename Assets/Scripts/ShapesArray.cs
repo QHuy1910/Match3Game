@@ -26,10 +26,10 @@ public class ShapesArray
             {
                 return shapes[row, column];
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                
-                throw ex;
+                // Preserve original stack trace
+                throw;
             }
         }
         set

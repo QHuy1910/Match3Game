@@ -1102,6 +1102,9 @@ MonoBehaviour:
   - {fileID: 105690, guid: c9cde8189605ee449bcc97b998147d85, type: 3}
   - {fileID: 187842, guid: 11cb4356a18183c48b07164222227d2b, type: 3}
   - {fileID: 157836, guid: 19c708ee61002454eb4c54c029ce0eaf, type: 3}
+  - {fileID: 6406527333264464878, guid: 3ed93de2644c2ad4e84109ab745e802f, type: 3}
+  RainbowCandyPrefab: {fileID: 6406527333264464878, guid: 3ed93de2644c2ad4e84109ab745e802f,
+    type: 3}
   soundManager: {fileID: 1624638383}
 --- !u!4 &1363272350
 Transform:
