@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 1536
     height: 868.8
   m_ShowMode: 4
-  m_Title: Game
+  m_Title: Hierarchy
   m_RootView: {fileID: 6}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -48,7 +48,7 @@ MonoBehaviour:
   m_MinSize: {x: 300, y: 200}
   m_MaxSize: {x: 24288, y: 16192}
   vertical: 0
-  controlID: 77
+  controlID: 93
 --- !u!114 &3
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -223,7 +223,7 @@ MonoBehaviour:
   m_MinSize: {x: 200, y: 200}
   m_MaxSize: {x: 16192, y: 16192}
   vertical: 1
-  controlID: 78
+  controlID: 94
 --- !u!114 &10
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -248,7 +248,7 @@ MonoBehaviour:
   m_MinSize: {x: 200, y: 100}
   m_MaxSize: {x: 16192, y: 8096}
   vertical: 0
-  controlID: 79
+  controlID: 95
 --- !u!114 &11
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -318,22 +318,22 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - "Assets/Sounds/backgrounM\xFAic"
+    - Assets/Sprites/Backgrounds
     m_Globs: []
     m_OriginalText: 
   m_ViewMode: 1
   m_StartGridSize: 64
   m_LastFolders:
-  - "Assets/Sounds/backgrounM\xFAic"
+  - Assets/Sprites/Backgrounds
   m_LastFoldersGridSize: -1
   m_LastProjectPath: C:\Users\abctt\Desktop\New folder\MatchThreeGame
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
     scrollPos: {x: 0, y: 0}
-    m_SelectedIDs: 82590000
-    m_LastClickedID: 22914
-    m_ExpandedIDs: 000000006a5800006c5800006e580000705800009258000000ca9a3b
+    m_SelectedIDs: 8e580000
+    m_LastClickedID: 22670
+    m_ExpandedIDs: 00000000725800007458000076580000785800008a58000000ca9a3b
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -361,7 +361,7 @@ MonoBehaviour:
     scrollPos: {x: 0, y: 0}
     m_SelectedIDs: 
     m_LastClickedID: 0
-    m_ExpandedIDs: 000000006a5800006c5800006e58000070580000
+    m_ExpandedIDs: 0000000072580000745800007658000078580000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -453,7 +453,7 @@ MonoBehaviour:
     m_ControlHash: -371814159
     m_PrefName: Preview_InspectorPreview
   m_LastInspectedObjectInstanceID: -1
-  m_LastVerticalScrollValue: 0
+  m_LastVerticalScrollValue: 412.8
   m_GlobalObjectId: 
   m_InspectorMode: 0
   m_LockTracker:
@@ -491,9 +491,9 @@ MonoBehaviour:
   m_SceneHierarchy:
     m_TreeViewState:
       scrollPos: {x: 0, y: 0}
-      m_SelectedIDs: 22f5ffff
-      m_LastClickedID: -2782
-      m_ExpandedIDs: 38fbffff
+      m_SelectedIDs: 
+      m_LastClickedID: 0
+      m_ExpandedIDs: 04d0ffff12f1ffffb2f1ffff56f4fffff0f8ffff18f9ffff7cf9ffffc2f9ffff5cfaffff38fbffff245e0000
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -787,9 +787,9 @@ MonoBehaviour:
   m_PlayAudio: 0
   m_AudioPlay: 0
   m_Position:
-    m_Target: {x: 3.0078406, y: -1.1429782, z: 0.06061742}
+    m_Target: {x: 2.078659, y: 0.53984576, z: 0.005787916}
     speed: 2
-    m_Value: {x: 3.0078406, y: -1.1429782, z: 0.06061742}
+    m_Value: {x: 2.078659, y: 0.53984576, z: 0.005787916}
   m_RenderMode: 0
   m_CameraMode:
     drawMode: 0
@@ -840,9 +840,9 @@ MonoBehaviour:
     speed: 2
     m_Value: {x: 0, y: 0, z: 0, w: 1}
   m_Size:
-    m_Target: 3.9382315
+    m_Target: 9.421186
     speed: 2
-    m_Value: 3.9382315
+    m_Value: 9.421186
   m_Ortho:
     m_Target: 1
     speed: 2
@@ -928,7 +928,7 @@ MonoBehaviour:
   m_SerializedViewNames:
   - UnityEditor.DeviceSimulation.SimulatorWindow
   m_SerializedViewValues:
-  - C:\Users\abctt\Desktop\New folder\MatchThreeGame\Library\PlayModeViewStates\2946c5d412d0e0943898a4f27b2787f5
+  - C:\Users\abctt\Desktop\New folder\MatchThreeGame\Library\PlayModeViewStates\3ec78b65a92f960489891bb374837621
   m_PlayModeViewName: GameView
   m_ShowGizmos: 0
   m_TargetDisplay: 0
@@ -971,7 +971,7 @@ MonoBehaviour:
       y: 21
       width: 893.2001
       height: 442
-    m_Scale: {x: 1.1224725, y: 1.1224725}
+    m_Scale: {x: 1.1940521, y: 1.1940521}
     m_Translation: {x: 446.60004, y: 221}
     m_MarginLeft: 0
     m_MarginRight: 0
@@ -979,10 +979,10 @@ MonoBehaviour:
     m_MarginBottom: 0
     m_LastShownAreaInsideMargins:
       serializedVersion: 2
-      x: -397.87167
-      y: -196.88678
-      width: 795.74335
-      height: 393.77356
+      x: -374.02057
+      y: -185.08405
+      width: 748.04114
+      height: 370.1681
     m_MinimalGUI: 1
   m_defaultScale: 1
   m_LastWindowPixelSize: {x: 1116.5001, y: 578.75}
