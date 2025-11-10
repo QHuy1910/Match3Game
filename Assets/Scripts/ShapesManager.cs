@@ -16,8 +16,12 @@ public class ShapesManager : MonoBehaviour
 
     private int score;
 
-    public readonly Vector2 BottomRight = new Vector2(-2.37f, -4.27f);
-    public readonly Vector2 CandySize = new Vector2(0.7f, 0.7f);
+    // Calculated at runtime so the board fits on different screen sizes / aspect ratios
+    private Vector2 BottomRight;
+    private Vector2 CandySize;
+    private float candyScale = 1f;
+    // small offset to tweak board placement from the Inspector (x: right, y: up)
+    public Vector2 BoardOffset = Vector2.zero;
 
     private GameState state = GameState.None;
     private GameObject hitGo = null;
@@ -34,6 +38,66 @@ public class ShapesManager : MonoBehaviour
     IEnumerable<GameObject> potentialMatches;
 
     public SoundManager soundManager;
+    
+    /// <summary>
+    /// Recalculate candy world size and board origin so the board fits the camera view.
+    /// </summary>
+    private void UpdateBoardLayout()
+    {
+        // determine candy base size from the first candy prefab if possible
+        Vector2 baseCandySize = Vector2.zero;
+        if (CandyPrefabs != null && CandyPrefabs.Length > 0 && CandyPrefabs[0] != null)
+        {
+            var sr = CandyPrefabs[0].GetComponent<SpriteRenderer>();
+            if (sr != null && sr.sprite != null)
+            {
+                // sprite.bounds.size is in local units (px-to-units applied)
+                baseCandySize = new Vector2(sr.sprite.bounds.size.x * CandyPrefabs[0].transform.localScale.x,
+                                           sr.sprite.bounds.size.y * CandyPrefabs[0].transform.localScale.y);
+            }
+        }
+
+        // fallback to a sensible default if we couldn't read the sprite
+        if (baseCandySize == Vector2.zero)
+            baseCandySize = new Vector2(0.7f, 0.7f);
+
+        var cam = Camera.main;
+        if (cam == null)
+            return;
+
+        // compute grid size in world units using base size
+        float gridWidth = Constants.Columns * baseCandySize.x;
+        float gridHeight = Constants.Rows * baseCandySize.y;
+
+        // visible world size (orthographic camera expected)
+        float visibleHeight = cam.orthographicSize * 2f;
+        float visibleWidth = visibleHeight * cam.aspect;
+
+        // compute scale needed to fit both width and height (leave small padding)
+        float scaleW = visibleWidth / (gridWidth + 0.01f);
+        float scaleH = visibleHeight / (gridHeight + 0.01f);
+        float scaleToFit = Mathf.Min(scaleW, scaleH, 1f) * 0.95f; // 95% to add margin
+        candyScale = scaleToFit <= 0f ? 1f : scaleToFit;
+
+        // set final candy size
+        CandySize = baseCandySize * candyScale;
+
+    // center the grid on the camera's viewport center so it stays visible on different aspect ratios
+    // use ViewportToWorldPoint to get the world position of the viewport center (robust across setups)
+    float distanceToPlane = Mathf.Abs(cam.transform.position.z - 0f);
+    Vector3 camCenter = cam.ViewportToWorldPoint(new Vector3(0.5f, 0.5f, distanceToPlane));
+    Vector2 bottomLeft = new Vector2(camCenter.x - (Constants.Columns * CandySize.x) / 2f,
+                     camCenter.y - (Constants.Rows * CandySize.y) / 2f);
+
+    // apply manual inspector offset (in world units)
+    bottomLeft += BoardOffset;
+
+    // nudge slightly to the right by default so the grid isn't too close to the left edge
+    // this is a small fraction of a tile; adjust multiplier if you want a bigger shift
+    bottomLeft += new Vector2(CandySize.x * 0.4f, 0f);
+
+    BottomRight = bottomLeft; // historically used as bottom-left origin
+    }
     void Awake()
     {
         DebugText.enabled = ShowDebugInfo;
@@ -42,6 +106,8 @@ public class ShapesManager : MonoBehaviour
     // Use this for initialization
     void Start()
     {
+        // compute layout so candies spawn inside the visible camera area
+        UpdateBoardLayout();
         InitializeTypesOnPrefabShapesAndBonuses();
 
         InitializeCandyAndSpawnPositions();
@@ -165,7 +231,13 @@ public class ShapesManager : MonoBehaviour
             BottomRight + new Vector2(column * CandySize.x, row * CandySize.y), Quaternion.identity)
             as GameObject;
 
-        //assign the specific properties
+        // apply scale so candies fit the viewport if we computed a candyScale
+        if (!Mathf.Approximately(candyScale, 1f))
+            go.transform.localScale = new Vector3(go.transform.localScale.x * candyScale,
+                                                 go.transform.localScale.y * candyScale,
+                                                 go.transform.localScale.z);
+
+        // assign the specific properties
         go.GetComponent<Shape>().Assign(newCandy.GetComponent<Shape>().Type, row, column);
         shapes[row, column] = go;
     }
@@ -441,6 +513,12 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
 
             var go = GetRandomCandy();
             GameObject newCandy = Instantiate(go, spawnPos, Quaternion.identity) as GameObject;
+            // apply scale from layout calculation
+            if (!Mathf.Approximately(candyScale, 1f))
+                newCandy.transform.localScale = new Vector3(newCandy.transform.localScale.x * candyScale,
+                                                            newCandy.transform.localScale.y * candyScale,
+                                                            newCandy.transform.localScale.z);
+
             newCandy.GetComponent<Shape>().Assign(go.GetComponent<Shape>().Type, item.Row, item.Column);
 
             if (Constants.Rows - item.Row > newCandyInfo.MaxDistance)
@@ -645,6 +723,10 @@ private void CreateBonus(Shape baseShape)
     Destroy(baseShape.gameObject);
 
     GameObject bonus = Instantiate(prefab, spawnPos, Quaternion.identity);
+    if (!Mathf.Approximately(candyScale, 1f))
+        bonus.transform.localScale = new Vector3(bonus.transform.localScale.x * candyScale,
+                                                bonus.transform.localScale.y * candyScale,
+                                                bonus.transform.localScale.z);
     Shape bonusShape = bonus.GetComponent<Shape>();
     bonusShape.Assign(baseShape.Type, row, col);
     bonusShape.Bonus |= BonusType.DestroyWholeRowColumn;
@@ -668,6 +750,10 @@ private void CreateRainbowCandy(GameObject baseCandy)
     Destroy(baseCandy);
 
     GameObject rainbow = Instantiate(RainbowCandyPrefab, spawnPos, Quaternion.identity);
+    if (!Mathf.Approximately(candyScale, 1f))
+        rainbow.transform.localScale = new Vector3(rainbow.transform.localScale.x * candyScale,
+                                                  rainbow.transform.localScale.y * candyScale,
+                                                  rainbow.transform.localScale.z);
     Shape rainbowShape = rainbow.GetComponent<Shape>();
     rainbowShape.Assign("Rainbow", row, col);
     rainbowShape.Bonus = BonusType.ClearAllOfColor;
