@@ -16,7 +16,7 @@ public class MatchesInfo
     {
         get
         {
-            return matchedCandies.Distinct();
+            return matchedCandies.Where(g => g != null).Distinct();
         }
     }
 

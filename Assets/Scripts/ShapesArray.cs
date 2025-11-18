@@ -97,6 +97,7 @@ public class ShapesArray
         List<GameObject> matches = new List<GameObject>();
         foreach (var go in gos)
         {
+            if (go == null) continue;
             matches.AddRange(GetMatches(go).MatchedCandy);
         }
         return matches.Distinct();
@@ -183,9 +184,10 @@ public class ShapesArray
         if (shape.Column != 0)
             for (int column = shape.Column - 1; column >= 0; column--)
             {
-                if (shapes[shape.Row, column].GetComponent<Shape>().IsSameType(shape))
+                var neighbor = shapes[shape.Row, column];
+                if (neighbor != null && neighbor.GetComponent<Shape>().IsSameType(shape))
                 {
-                    matches.Add(shapes[shape.Row, column]);
+                    matches.Add(neighbor);
                 }
                 else
                     break;
@@ -195,9 +197,10 @@ public class ShapesArray
         if (shape.Column != Constants.Columns - 1)
             for (int column = shape.Column + 1; column < Constants.Columns; column++)
             {
-                if (shapes[shape.Row, column].GetComponent<Shape>().IsSameType(shape))
+                var neighbor = shapes[shape.Row, column];
+                if (neighbor != null && neighbor.GetComponent<Shape>().IsSameType(shape))
                 {
-                    matches.Add(shapes[shape.Row, column]);
+                    matches.Add(neighbor);
                 }
                 else
                     break;

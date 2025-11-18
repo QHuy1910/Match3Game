@@ -37,6 +37,10 @@ public class ShapesManager : MonoBehaviour
 
     IEnumerable<GameObject> potentialMatches;
 
+    // track gameobjects that were removed by a Rainbow effect so they don't spawn
+    // new bonuses/rainbows when processed
+    private HashSet<GameObject> clearedByRainbow = new HashSet<GameObject>();
+
     public SoundManager soundManager;
     
     /// <summary>
@@ -390,12 +394,21 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     }
 
     // Tạo bonus hoặc RainbowCandy nếu đủ match
-    bool addBonus = totalMatches.Count() >= Constants.MinimumMatchesForBonus &&
+    // Determine groups by type first (used for both bonus and rainbow decisions)
+    var typeGroups = totalMatches.Where(g => g != null && !clearedByRainbow.Contains(g))
+        .GroupBy(go => go.GetComponent<Shape>().Type);
+
+    // Only create a Rainbow candy when there are >= 5 candies of the SAME type
+    var rainbowGroup = typeGroups.FirstOrDefault(g => g.Count() >= 5);
+    bool createRainbow = rainbowGroup != null;
+    Shape hitGoCache = null;
+
+    // For non-rainbow bonuses we only create a special bonus when there are exactly
+    // Constants.MinimumMatchesForBonus (usually 4) candies of the same type.
+    var bonusGroup = typeGroups.FirstOrDefault(g => g.Count() == Constants.MinimumMatchesForBonus);
+    bool addBonus = bonusGroup != null &&
         !BonusTypeUtilities.ContainsDestroyWholeRowColumn(hitGomatchesInfo.BonusesContained) &&
         !BonusTypeUtilities.ContainsDestroyWholeRowColumn(hitGo2matchesInfo.BonusesContained);
-
-    bool createRainbow = totalMatches.Count() >= 5;
-    Shape hitGoCache = null;
 
     // If we need to create a Rainbow candy, don't create it immediately here.
     // Instead, remember the target GameObject and create the Rainbow after
@@ -409,17 +422,36 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     GameObject bonusTargetGo = null;
     bool willCreateBonus = false;
 
-    if (createRainbow)
+    if (createRainbow && rainbowGroup != null)
     {
-        rainbowTargetGo = hitGomatchesInfo.MatchedCandy.Count() > 0 ? hitGo : hitGo2;
+        // prefer to convert the swapped candy that belongs to the rainbow type
+        string rainbowType = rainbowGroup.Key;
+        if (hitGo.GetComponent<Shape>().Type == rainbowType)
+            rainbowTargetGo = hitGo;
+        else if (hitGo2.GetComponent<Shape>().Type == rainbowType)
+            rainbowTargetGo = hitGo2;
+        else
+            // fallback: pick any candy from the matching group
+            rainbowTargetGo = rainbowGroup.First();
+
         willCreateRainbow = true;
         // do not create now; we'll create it after removals below
     }
-    else if (addBonus)
+    else if (addBonus && bonusGroup != null)
     {
-        hitGoCache = totalMatches.Count() > 0 ? hitGo.GetComponent<Shape>() : hitGo2.GetComponent<Shape>();
-        if (hitGoCache != null)
+        // choose which GameObject to convert into the bonus: prefer one of the swapped
+        string bonusTypeKey = bonusGroup.Key;
+        Shape chosen = null;
+        if (hitGo.GetComponent<Shape>().Type == bonusTypeKey)
+            chosen = hitGo.GetComponent<Shape>();
+        else if (hitGo2.GetComponent<Shape>().Type == bonusTypeKey)
+            chosen = hitGo2.GetComponent<Shape>();
+        else
+            chosen = bonusGroup.First().GetComponent<Shape>();
+
+        if (chosen != null)
         {
+            hitGoCache = chosen;
             bonusTargetGo = hitGoCache.gameObject;
             willCreateBonus = true;
         }
@@ -455,14 +487,23 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
 
         if (willCreateRainbow && rainbowTargetGo != null)
         {
-            // create the Rainbow in the cleared slot
-            CreateRainbowCandy(rainbowTargetGo);
+            // only create the Rainbow if the target wasn't destroyed by other special effects
+            var s = rainbowTargetGo.GetComponent<Shape>();
+            if (s != null && shapes[s.Row, s.Column] == rainbowTargetGo)
+            {
+                // create the Rainbow in the cleared slot
+                CreateRainbowCandy(rainbowTargetGo);
+            }
             willCreateRainbow = false;
         }
 
         if (willCreateBonus && hitGoCache != null)
         {
-            CreateBonus(hitGoCache);
+            // ensure the chosen base shape still exists in the array (wasn't destroyed by another bonus)
+            if (shapes[hitGoCache.Row, hitGoCache.Column] == hitGoCache.gameObject)
+            {
+                CreateBonus(hitGoCache);
+            }
             willCreateBonus = false;
         }
 
@@ -478,8 +519,8 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
 
         yield return new WaitForSeconds(Constants.MoveAnimationMinDuration * maxDistance);
 
-        totalMatches = shapes.GetMatches(collapsedCandyInfo.AlteredCandy)
-            .Union(shapes.GetMatches(newCandyInfo.AlteredCandy)).Distinct();
+        // After collapse/spawn, check the entire board for newly formed matches
+        totalMatches = GetAllMatches();
 
         timesRun++;
     }
@@ -487,6 +528,95 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     state = GameState.None;
     StartCheckForPotentialMatches();
 }
+
+    /// <summary>
+    /// Scans the entire board and returns all matched GameObjects (>= MinimumMatches),
+    /// excluding any objects that were removed by a Rainbow effect.
+    /// </summary>
+    /// <returns></returns>
+    private IEnumerable<GameObject> GetAllMatches()
+    {
+        List<GameObject> matches = new List<GameObject>();
+
+        // Horizontal scan: for each row, find contiguous runs of the same Type
+        for (int r = 0; r < Constants.Rows; r++)
+        {
+            int runStart = 0;
+            string runType = null;
+            for (int c = 0; c <= Constants.Columns; c++)
+            {
+                GameObject go = (c < Constants.Columns) ? shapes[r, c] : null;
+                string t = go != null ? go.GetComponent<Shape>().Type : null;
+
+                if (t != null && runType == null)
+                {
+                    // start new run
+                    runType = t;
+                    runStart = c;
+                }
+                else if (t != null && runType == t)
+                {
+                    // continue run
+                }
+                else
+                {
+                    // run ended at c-1
+                    int runLength = c - runStart;
+                    if (runType != null && runLength >= Constants.MinimumMatches)
+                    {
+                        for (int x = runStart; x < c; x++)
+                        {
+                            var m = shapes[r, x];
+                            if (m != null && !clearedByRainbow.Contains(m))
+                                matches.Add(m);
+                        }
+                    }
+                    // reset run if next cell starts a new one
+                    runType = t;
+                    runStart = c;
+                }
+            }
+        }
+
+        // Vertical scan: for each column, find contiguous runs of the same Type
+        for (int c = 0; c < Constants.Columns; c++)
+        {
+            int runStart = 0;
+            string runType = null;
+            for (int r = 0; r <= Constants.Rows; r++)
+            {
+                GameObject go = (r < Constants.Rows) ? shapes[r, c] : null;
+                string t = go != null ? go.GetComponent<Shape>().Type : null;
+
+                if (t != null && runType == null)
+                {
+                    runType = t;
+                    runStart = r;
+                }
+                else if (t != null && runType == t)
+                {
+                    // continue
+                }
+                else
+                {
+                    int runLength = r - runStart;
+                    if (runType != null && runLength >= Constants.MinimumMatches)
+                    {
+                        for (int y = runStart; y < r; y++)
+                        {
+                            var m = shapes[y, c];
+                            if (m != null && !clearedByRainbow.Contains(m))
+                                matches.Add(m);
+                        }
+                    }
+                    runType = t;
+                    runStart = r;
+                }
+            }
+        }
+
+        return matches.Distinct();
+    }
 
 
     /// <summary>
@@ -619,6 +749,8 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     private void StartCheckForPotentialMatches()
     {
         StopCheckForPotentialMatches();
+        // clear any tracked rainbow-cleared objects before starting hint coroutines
+        clearedByRainbow.Clear();
         //get a reference to stop it later
         CheckPotentialMatchesCoroutine = CheckPotentialMatches();
         StartCoroutine(CheckPotentialMatchesCoroutine);
@@ -778,11 +910,14 @@ private void ClearAllOfColor(string colorType, Shape activatingShape = null)
             Shape s = go.GetComponent<Shape>();
             
             // Xóa tất cả viên cùng màu, bỏ qua viên đang activate nếu muốn
-            if (s.Type == colorType || go == activatingShape?.gameObject)
-            {
-                RemoveFromScene(go);
-                shapes[r, c] = null;
-            }
+                if (s.Type == colorType || go == activatingShape?.gameObject)
+                {
+                    // record that this object was removed by the Rainbow effect so it
+                    // won't be used to spawn additional bonuses/rainbows later
+                    clearedByRainbow.Add(go);
+                    RemoveFromScene(go);
+                    shapes[r, c] = null;
+                }
         }
     }
 
