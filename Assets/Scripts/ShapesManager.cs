@@ -40,8 +40,26 @@ public class ShapesManager : MonoBehaviour
     // track gameobjects that were removed by a Rainbow effect so they don't spawn
     // new bonuses/rainbows when processed
     private HashSet<GameObject> clearedByRainbow = new HashSet<GameObject>();
+    // When true, do not create new bonuses/rainbows during cascade processing.
+    private bool suppressSpecialsBecauseOfRainbow = false;
+
+    // lightweight container used for ClearAllOfColor preview/remove logic
+    private struct ClearTarget
+    {
+        public int Row;
+        public int Col;
+        public GameObject Go;
+        public ClearTarget(int row, int col, GameObject go)
+        {
+            Row = row; Col = col; Go = go;
+        }
+    }
 
     public SoundManager soundManager;
+    // Preview settings for candies about to be destroyed
+    public float PreviewDuration = 0.18f;
+    public float PreviewScale = 1.15f;
+    public Color PreviewTint = new Color(1f, 1f, 0.6f, 1f);
     
     /// <summary>
     /// Recalculate candy world size and board origin so the board fits the camera view.
@@ -354,20 +372,33 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     Shape s1 = hitGo.GetComponent<Shape>();
     Shape s2 = hitGo2.GetComponent<Shape>();
 
-    // RainbowCandy kích hoạt trước animation
+    // If one of the swapped candies is a Rainbow, animate the visual swap first
+    // and then trigger the Rainbow effect so the player sees the swap.
     if (s1.Bonus == BonusType.ClearAllOfColor)
     {
-        ClearAllOfColor(s2.Type, s1);
-        // ensure we reset state and restart potential matches when we early-exit
-        state = GameState.None;
-        StartCheckForPotentialMatches();
+        // ensure proper draw order
+        FixSortingLayer(hitGo, hitGo2);
+        // animate swap visuals
+        Vector3 pos1 = hitGo.transform.position;
+        Vector3 pos2 = hitGo2.transform.position;
+        hitGo.transform.DOMove(pos2, Constants.AnimationDuration);
+        hitGo2.transform.DOMove(pos1, Constants.AnimationDuration);
+        yield return new WaitForSeconds(Constants.AnimationDuration);
+
+        // After animation, trigger the Rainbow effect (s2.Type is the target color)
+        yield return StartCoroutine(ClearAllOfColor(s2.Type, s1));
         yield break;
     }
     else if (s2.Bonus == BonusType.ClearAllOfColor)
     {
-        ClearAllOfColor(s1.Type, s2);
-        state = GameState.None;
-        StartCheckForPotentialMatches();
+        FixSortingLayer(hitGo, hitGo2);
+        Vector3 pos1b = hitGo.transform.position;
+        Vector3 pos2b = hitGo2.transform.position;
+        hitGo.transform.DOMove(pos2b, Constants.AnimationDuration);
+        hitGo2.transform.DOMove(pos1b, Constants.AnimationDuration);
+        yield return new WaitForSeconds(Constants.AnimationDuration);
+
+        yield return StartCoroutine(ClearAllOfColor(s1.Type, s2));
         yield break;
     }
 
@@ -467,22 +498,42 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
 
         soundManager.PlayCrincle();
 
+        // If any item in the match is a special, mark that this removal is caused by a special
+        bool removalBySpecial = totalMatches.Any(i => i != null && i.GetComponent<Shape>().Bonus != BonusType.None);
+        // Suppress creating new specials during this cascade if it was triggered by a special
+        suppressSpecialsBecauseOfRainbow = suppressSpecialsBecauseOfRainbow || removalBySpecial;
+
+        // Build the list of items we will actually remove this pass (skip planned targets)
+        var toRemove = new List<GameObject>();
         foreach (var item in totalMatches)
         {
-            // If we're going to create a Rainbow candy on one of the matched items,
-            // skip destroying that specific GameObject now so we can replace it
-            // with the Rainbow afterwards (avoids overlap).
             if (willCreateRainbow && rainbowTargetGo != null && item == rainbowTargetGo)
                 continue;
-
-            // If we're going to create a bonus on one of the matched items,
-            // skip destroying that specific GameObject now so we can replace it
-            // with the bonus afterwards (avoids duplicate/stuck visuals).
             if (willCreateBonus && bonusTargetGo != null && item == bonusTargetGo)
                 continue;
+            toRemove.Add(item);
+        }
 
-            shapes.Remove(item);
-            RemoveFromScene(item);
+        // preview animation for removals (scale + tint)
+        float previewDurationLocal = PreviewDuration;
+        foreach (var rem in toRemove)
+        {
+            if (rem == null) continue;
+            rem.transform.DOScale(rem.transform.localScale * PreviewScale, previewDurationLocal / 2f).SetLoops(2, LoopType.Yoyo);
+            var sr = rem.GetComponent<SpriteRenderer>();
+            if (sr != null)
+                sr.DOColor(PreviewTint, previewDurationLocal / 2f).SetLoops(2, LoopType.Yoyo);
+        }
+        yield return new WaitForSeconds(previewDurationLocal);
+
+        // perform removals
+        foreach (var rem in toRemove)
+        {
+            if (rem == null) continue;
+            if (removalBySpecial)
+                clearedByRainbow.Add(rem);
+            shapes.Remove(rem);
+            RemoveFromScene(rem);
         }
 
         if (willCreateRainbow && rainbowTargetGo != null)
@@ -898,8 +949,127 @@ private void CreateRainbowCandy(GameObject baseCandy)
 }
 
 
-private void ClearAllOfColor(string colorType, Shape activatingShape = null)
-{
+    private IEnumerator ProcessBoardMatches()
+    {
+        // small delay to allow previous animations to settle
+        yield return new WaitForSeconds(Constants.MoveAnimationMinDuration);
+
+        while (true)
+        {
+            var totalMatches = GetAllMatches().ToList();
+            if (totalMatches.Count < Constants.MinimumMatches)
+                break;
+
+            IncreaseScore((totalMatches.Count - 2) * Constants.Match3Score);
+            soundManager.PlayCrincle();
+
+            // Determine groups by type so we can create specials when needed
+            var typeGroups = totalMatches
+                .Where(g => g != null && !clearedByRainbow.Contains(g))
+                .GroupBy(go => go.GetComponent<Shape>().Type)
+                .ToList();
+
+            // If a Rainbow triggered the cascade recently, suppress creating new special candies
+            var rainbowTargets = new List<GameObject>();
+            var bonusTargets = new List<GameObject>();
+            if (!suppressSpecialsBecauseOfRainbow)
+            {
+                foreach (var g in typeGroups)
+                {
+                    if (g.Count() >= 5)
+                    {
+                        var target = g.FirstOrDefault();
+                        if (target != null)
+                            rainbowTargets.Add(target);
+                    }
+                    else if (g.Count() == Constants.MinimumMatchesForBonus)
+                    {
+                        var target = g.FirstOrDefault();
+                        if (target != null)
+                            bonusTargets.Add(target);
+                    }
+                }
+            }
+
+            // Remove matched items, skipping planned targets so they can be replaced
+            // If any item in the match is a special, treat this as a special-triggered removal
+            bool removalBySpecial = totalMatches.Any(i => i != null && i.GetComponent<Shape>().Bonus != BonusType.None);
+            if (removalBySpecial)
+                suppressSpecialsBecauseOfRainbow = true;
+
+            var toRemoveCascade = new List<GameObject>();
+            foreach (var item in totalMatches)
+            {
+                if (rainbowTargets.Contains(item) || bonusTargets.Contains(item))
+                    continue;
+                toRemoveCascade.Add(item);
+            }
+
+            // preview animation (scale + tint)
+            float previewDurationCascade = PreviewDuration;
+            foreach (var rem in toRemoveCascade)
+            {
+                if (rem == null) continue;
+                rem.transform.DOScale(rem.transform.localScale * PreviewScale, previewDurationCascade / 2f).SetLoops(2, LoopType.Yoyo);
+                var sr = rem.GetComponent<SpriteRenderer>();
+                if (sr != null)
+                    sr.DOColor(PreviewTint, previewDurationCascade / 2f).SetLoops(2, LoopType.Yoyo);
+            }
+            yield return new WaitForSeconds(previewDurationCascade);
+
+            foreach (var rem in toRemoveCascade)
+            {
+                if (rem == null) continue;
+                if (removalBySpecial)
+                    clearedByRainbow.Add(rem);
+                shapes.Remove(rem);
+                RemoveFromScene(rem);
+            }
+
+            // Create rainbows
+            foreach (var rt in rainbowTargets)
+            {
+                var s = rt.GetComponent<Shape>();
+                if (s != null && shapes[s.Row, s.Column] == rt)
+                {
+                    CreateRainbowCandy(rt);
+                }
+            }
+
+            // Create bonuses
+            foreach (var bt in bonusTargets)
+            {
+                var bs = bt.GetComponent<Shape>();
+                if (bs != null && shapes[bs.Row, bs.Column] == bt)
+                {
+                    CreateBonus(bs);
+                }
+            }
+
+            var columns = totalMatches.Select(go => go.GetComponent<Shape>().Column).Distinct();
+            var collapsedInfo = shapes.Collapse(columns);
+            var newCandyInfo = CreateNewCandyInSpecificColumns(columns);
+
+            int maxDistance = Mathf.Max(collapsedInfo.MaxDistance, newCandyInfo.MaxDistance);
+            MoveAndAnimate(newCandyInfo.AlteredCandy, maxDistance);
+            MoveAndAnimate(collapsedInfo.AlteredCandy, maxDistance);
+
+            yield return new WaitForSeconds(Constants.MoveAnimationMinDuration * maxDistance);
+        }
+
+        // ensure we reset state and restart potential match hints
+        state = GameState.None;
+        // clear the suppress flag after cascades are processed
+        suppressSpecialsBecauseOfRainbow = false;
+        StartCheckForPotentialMatches();
+    }
+
+    private IEnumerator ClearAllOfColor(string colorType, Shape activatingShape = null)
+    {
+    // indicate cascades started by a Rainbow should not produce new specials
+    suppressSpecialsBecauseOfRainbow = true;
+    // collect targets first so we can preview them simultaneously
+    var toClear = new List<ClearTarget>();
     for (int r = 0; r < Constants.Rows; r++)
     {
         for (int c = 0; c < Constants.Columns; c++)
@@ -912,24 +1082,52 @@ private void ClearAllOfColor(string colorType, Shape activatingShape = null)
             // Xóa tất cả viên cùng màu, bỏ qua viên đang activate nếu muốn
                 if (s.Type == colorType || go == activatingShape?.gameObject)
                 {
-                    // record that this object was removed by the Rainbow effect so it
-                    // won't be used to spawn additional bonuses/rainbows later
-                    clearedByRainbow.Add(go);
-                    RemoveFromScene(go);
-                    shapes[r, c] = null;
+                    toClear.Add(new ClearTarget(r, c, go));
                 }
         }
     }
 
-    soundManager.PlayCrincle(); // hiệu ứng âm thanh
+        if (toClear.Count == 0)
+            yield break;
+
+        // preview animation: small pulse so the player sees which candies will be removed
+        float previewDuration = 0.18f;
+        foreach (var t in toClear)
+        {
+            var go = t.Go;
+            if (go == null) continue;
+            clearedByRainbow.Add(go);
+            // pulse scale
+            go.transform.DOScale(go.transform.localScale * 1.15f, previewDuration / 2f).SetLoops(2, LoopType.Yoyo);
+        }
+
+        yield return new WaitForSeconds(previewDuration);
+
+        // remove after preview
+        foreach (var t in toClear)
+        {
+            int r = t.Row;
+            int c = t.Col;
+            var go = t.Go;
+            if (go == null) continue;
+            shapes[r, c] = null;
+            RemoveFromScene(go);
+        }
     IncreaseScore(1000); // thưởng điểm
 
     // refill lại bảng
+    // refill the board
     var columns = Enumerable.Range(0, Constants.Columns);
     var collapsed = shapes.Collapse(columns);
     var newOnes = CreateNewCandyInSpecificColumns(columns);
     MoveAndAnimate(collapsed.AlteredCandy, collapsed.MaxDistance);
     MoveAndAnimate(newOnes.AlteredCandy, newOnes.MaxDistance);
+
+    int maxDistance = Mathf.Max(collapsed.MaxDistance, newOnes.MaxDistance);
+    yield return new WaitForSeconds(Constants.MoveAnimationMinDuration * maxDistance);
+
+    // start processing matches created by the cascade
+    StartCoroutine(ProcessBoardMatches());
 }
 
 
