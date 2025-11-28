@@ -425,19 +425,16 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     }
 
     // Tạo bonus hoặc RainbowCandy nếu đủ match
-    // Determine groups by type first (used for both bonus and rainbow decisions)
-    var typeGroups = totalMatches.Where(g => g != null && !clearedByRainbow.Contains(g))
-        .GroupBy(go => go.GetComponent<Shape>().Type);
-
-    // Only create a Rainbow candy when there are >= 5 candies of the SAME type
-    var rainbowGroup = typeGroups.FirstOrDefault(g => g.Count() >= 5);
-    bool createRainbow = rainbowGroup != null;
+    // Determine straight runs for rainbows (>=5) and bonuses (exactly 4)
+    var straightRuns5 = GetStraightRuns(5);
+    var rainbowRun = straightRuns5.FirstOrDefault(run => run.Intersect(totalMatches).Count() >= 5);
+    bool createRainbow = rainbowRun != null;
     Shape hitGoCache = null;
 
-    // For non-rainbow bonuses we only create a special bonus when there are exactly
-    // Constants.MinimumMatchesForBonus (usually 4) candies of the same type.
-    var bonusGroup = typeGroups.FirstOrDefault(g => g.Count() == Constants.MinimumMatchesForBonus);
-    bool addBonus = bonusGroup != null &&
+    // For bonuses we require a straight contiguous run of exactly 4
+    var straightRuns4 = GetStraightRuns(4).Where(r => r.Count == 4).ToList();
+    var bonusRun = straightRuns4.FirstOrDefault(run => run.Intersect(totalMatches).Count() >= 4);
+    bool addBonus = bonusRun != null &&
         !BonusTypeUtilities.ContainsDestroyWholeRowColumn(hitGomatchesInfo.BonusesContained) &&
         !BonusTypeUtilities.ContainsDestroyWholeRowColumn(hitGo2matchesInfo.BonusesContained);
 
@@ -453,32 +450,31 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     GameObject bonusTargetGo = null;
     bool willCreateBonus = false;
 
-    if (createRainbow && rainbowGroup != null)
+    if (createRainbow && rainbowRun != null)
     {
-        // prefer to convert the swapped candy that belongs to the rainbow type
-        string rainbowType = rainbowGroup.Key;
-        if (hitGo.GetComponent<Shape>().Type == rainbowType)
+        // prefer to convert one of the swapped candies if it belongs to the straight run
+        if (rainbowRun.Contains(hitGo))
             rainbowTargetGo = hitGo;
-        else if (hitGo2.GetComponent<Shape>().Type == rainbowType)
+        else if (rainbowRun.Contains(hitGo2))
             rainbowTargetGo = hitGo2;
         else
-            // fallback: pick any candy from the matching group
-            rainbowTargetGo = rainbowGroup.First();
+            // fallback: pick the first item in the straight run
+            rainbowTargetGo = rainbowRun.FirstOrDefault();
 
-        willCreateRainbow = true;
-        // do not create now; we'll create it after removals below
+        willCreateRainbow = rainbowTargetGo != null;
+        // creation is deferred until after removals
     }
-    else if (addBonus && bonusGroup != null)
+    else if (addBonus && bonusRun != null)
     {
         // choose which GameObject to convert into the bonus: prefer one of the swapped
-        string bonusTypeKey = bonusGroup.Key;
+        // prefer swapped candy if it's in the straight 4-run
         Shape chosen = null;
-        if (hitGo.GetComponent<Shape>().Type == bonusTypeKey)
+        if (bonusRun.Contains(hitGo))
             chosen = hitGo.GetComponent<Shape>();
-        else if (hitGo2.GetComponent<Shape>().Type == bonusTypeKey)
+        else if (bonusRun.Contains(hitGo2))
             chosen = hitGo2.GetComponent<Shape>();
         else
-            chosen = bonusGroup.First().GetComponent<Shape>();
+            chosen = bonusRun.First().GetComponent<Shape>();
 
         if (chosen != null)
         {
@@ -669,6 +665,98 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
         return matches.Distinct();
     }
 
+    /// <summary>
+    /// Finds all straight horizontal or vertical runs of a given minimum length.
+    /// Returns a list of runs where each run is a list of contiguous GameObjects.
+    /// Runs exclude objects that were cleared by a Rainbow.
+    /// </summary>
+    private List<List<GameObject>> GetStraightRuns(int requiredLength)
+    {
+        var runs = new List<List<GameObject>>();
+
+        // Horizontal
+        for (int r = 0; r < Constants.Rows; r++)
+        {
+            int runStart = 0;
+            string runType = null;
+            for (int c = 0; c <= Constants.Columns; c++)
+            {
+                GameObject go = (c < Constants.Columns) ? shapes[r, c] : null;
+                string t = go != null ? go.GetComponent<Shape>().Type : null;
+
+                if (t != null && runType == null)
+                {
+                    runType = t;
+                    runStart = c;
+                }
+                else if (t != null && runType == t)
+                {
+                    // continue
+                }
+                else
+                {
+                    int runLength = c - runStart;
+                    if (runType != null && runLength >= requiredLength)
+                    {
+                        var run = new List<GameObject>();
+                        for (int x = runStart; x < c; x++)
+                        {
+                            var m = shapes[r, x];
+                            if (m != null && !clearedByRainbow.Contains(m))
+                                run.Add(m);
+                        }
+                        if (run.Count >= requiredLength)
+                            runs.Add(run);
+                    }
+                    runType = t;
+                    runStart = c;
+                }
+            }
+        }
+
+        // Vertical
+        for (int c = 0; c < Constants.Columns; c++)
+        {
+            int runStart = 0;
+            string runType = null;
+            for (int r = 0; r <= Constants.Rows; r++)
+            {
+                GameObject go = (r < Constants.Rows) ? shapes[r, c] : null;
+                string t = go != null ? go.GetComponent<Shape>().Type : null;
+
+                if (t != null && runType == null)
+                {
+                    runType = t;
+                    runStart = r;
+                }
+                else if (t != null && runType == t)
+                {
+                    // continue
+                }
+                else
+                {
+                    int runLength = r - runStart;
+                    if (runType != null && runLength >= requiredLength)
+                    {
+                        var run = new List<GameObject>();
+                        for (int y = runStart; y < r; y++)
+                        {
+                            var m = shapes[y, c];
+                            if (m != null && !clearedByRainbow.Contains(m))
+                                run.Add(m);
+                        }
+                        if (run.Count >= requiredLength)
+                            runs.Add(run);
+                    }
+                    runType = t;
+                    runStart = r;
+                }
+            }
+        }
+
+        return runs;
+    }
+
 
     /// <summary>
     /// Spawns new candy in columns that have missing ones
@@ -848,8 +936,9 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
             while (true)
             {
 
-                AnimatePotentialMatchesCoroutine = Utilities.AnimatePotentialMatches(potentialMatches);
+                AnimatePotentialMatchesCoroutine = Utilities.AnimatePotentialMatches(potentialMatches, Constants.HintVisibleDuration);
                 StartCoroutine(AnimatePotentialMatchesCoroutine);
+                // wait the configured hint-visible duration before continuing the loop
                 yield return new WaitForSeconds(Constants.WaitBeforePotentialMatchesCheck);
             }
         }
@@ -974,17 +1063,25 @@ private void CreateRainbowCandy(GameObject baseCandy)
             var bonusTargets = new List<GameObject>();
             if (!suppressSpecialsBecauseOfRainbow)
             {
-                foreach (var g in typeGroups)
+                // For cascades create Rainbows only for straight 5+ runs
+                var straightRuns5 = GetStraightRuns(5);
+                foreach (var run in straightRuns5)
                 {
-                    if (g.Count() >= 5)
+                    if (run.Intersect(totalMatches).Count() >= 5)
                     {
-                        var target = g.FirstOrDefault();
+                        var target = run.FirstOrDefault();
                         if (target != null)
                             rainbowTargets.Add(target);
                     }
-                    else if (g.Count() == Constants.MinimumMatchesForBonus)
+                }
+
+                // For cascades create Bonuses only for straight runs of exactly 4
+                var straightRuns4 = GetStraightRuns(4).Where(r => r.Count == 4).ToList();
+                foreach (var run in straightRuns4)
+                {
+                    if (run.Intersect(totalMatches).Count() >= 4)
                     {
-                        var target = g.FirstOrDefault();
+                        var target = run.FirstOrDefault();
                         if (target != null)
                             bonusTargets.Add(target);
                     }

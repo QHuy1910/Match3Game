@@ -13,28 +13,68 @@ public static class Utilities
     /// </summary>
     /// <param name="potentialMatches"></param>
     /// <returns></returns>
+    public static IEnumerator AnimatePotentialMatches(IEnumerable<GameObject> potentialMatches, float duration)
+    {
+        if (potentialMatches == null) yield break;
+
+        float elapsed = 0f;
+        float stepDelay = Constants.OpacityAnimationFrameDelay;
+
+        // Loop the fade-out / fade-in animation until the requested duration has elapsed
+        while (elapsed < duration)
+        {
+            // fade out
+            for (float a = 1f; a >= 0.3f; a -= 0.1f)
+            {
+                foreach (var item in potentialMatches)
+                {
+                    if (item == null) continue;
+                    var sr = item.GetComponent<SpriteRenderer>();
+                    if (sr == null) continue;
+                    Color c = sr.color;
+                    c.a = a;
+                    sr.color = c;
+                }
+                yield return new WaitForSeconds(stepDelay);
+                elapsed += stepDelay;
+                if (elapsed >= duration) break;
+            }
+            if (elapsed >= duration) break;
+
+            // fade in
+            for (float a = 0.3f; a <= 1f; a += 0.1f)
+            {
+                foreach (var item in potentialMatches)
+                {
+                    if (item == null) continue;
+                    var sr = item.GetComponent<SpriteRenderer>();
+                    if (sr == null) continue;
+                    Color c = sr.color;
+                    c.a = a;
+                    sr.color = c;
+                }
+                yield return new WaitForSeconds(stepDelay);
+                elapsed += stepDelay;
+                if (elapsed >= duration) break;
+            }
+        }
+
+        // ensure opacity restored
+        foreach (var item in potentialMatches)
+        {
+            if (item == null) continue;
+            var sr = item.GetComponent<SpriteRenderer>();
+            if (sr == null) continue;
+            Color c = sr.color;
+            c.a = 1f;
+            sr.color = c;
+        }
+    }
+
+    // Backwards-compatible overload (single-cycle animation)
     public static IEnumerator AnimatePotentialMatches(IEnumerable<GameObject> potentialMatches)
     {
-        for (float i = 1f; i >= 0.3f; i -= 0.1f)
-        {
-            foreach (var item in potentialMatches)
-            {
-                Color c = item.GetComponent<SpriteRenderer>().color;
-                c.a = i;
-                item.GetComponent<SpriteRenderer>().color = c;
-            }
-            yield return new WaitForSeconds(Constants.OpacityAnimationFrameDelay);
-        }
-        for (float i = 0.3f; i <= 1f; i += 0.1f)
-        {
-            foreach (var item in potentialMatches)
-            {
-                Color c = item.GetComponent<SpriteRenderer>().color;
-                c.a = i;
-                item.GetComponent<SpriteRenderer>().color = c;
-            }
-            yield return new WaitForSeconds(Constants.OpacityAnimationFrameDelay);
-        }
+        return AnimatePotentialMatches(potentialMatches, Constants.OpacityAnimationFrameDelay * 20f);
     }
 
     /// <summary>
