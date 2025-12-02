@@ -34,6 +34,7 @@ public class ShapesManager : MonoBehaviour
 
     private IEnumerator CheckPotentialMatchesCoroutine;
     private IEnumerator AnimatePotentialMatchesCoroutine;
+    private IEnumerator ProcessBoardMatchesCoroutine;
 
     IEnumerable<GameObject> potentialMatches;
 
@@ -60,6 +61,49 @@ public class ShapesManager : MonoBehaviour
     public float PreviewDuration = 0.18f;
     public float PreviewScale = 1.15f;
     public Color PreviewTint = new Color(1f, 1f, 0.6f, 1f);
+
+    /// <summary>
+    /// Safely stop ongoing coroutines/animations and reset transient state
+    /// so the board can be reinitialized (restart/premade load) without leftover state.
+    /// </summary>
+    private void ResetBoardForReinitialization()
+    {
+        // Stop potential-matches animation and its coroutine
+        if (AnimatePotentialMatchesCoroutine != null)
+        {
+            try { StopCoroutine(AnimatePotentialMatchesCoroutine); } catch { }
+            AnimatePotentialMatchesCoroutine = null;
+        }
+
+        // Stop potential-matches checker
+        if (CheckPotentialMatchesCoroutine != null)
+        {
+            try { StopCoroutine(CheckPotentialMatchesCoroutine); } catch { }
+            CheckPotentialMatchesCoroutine = null;
+        }
+
+        // Stop processing cascades if running
+        if (ProcessBoardMatchesCoroutine != null)
+        {
+            try { StopCoroutine(ProcessBoardMatchesCoroutine); } catch { }
+            ProcessBoardMatchesCoroutine = null;
+        }
+
+        // Stop any other coroutines started on this MonoBehaviour (safe reset)
+        try { StopAllCoroutines(); } catch { }
+
+        // Kill active tweens (prevents lingering animations on destroyed objects)
+        try { DG.Tweening.DOTween.KillAll(); } catch { }
+
+        // reset transient gameplay state
+        state = GameState.None;
+        hitGo = null;
+        clearedByRainbow.Clear();
+        suppressSpecialsBecauseOfRainbow = false;
+
+        // restore opacity on any potential matches we were animating
+        ResetOpacityOnPotentialMatches();
+    }
     
     /// <summary>
     /// Recalculate candy world size and board origin so the board fits the camera view.
@@ -176,6 +220,8 @@ public class ShapesManager : MonoBehaviour
 
     public void InitializeCandyAndSpawnPositionsFromPremadeLevel()
     {
+        // ensure any in-progress swaps/animations are stopped before we reinitialize
+        ResetBoardForReinitialization();
         InitializeVariables();
 
         var premadeLevel = DebugUtilities.FillShapesArrayFromResourcesData();
@@ -206,6 +252,8 @@ public class ShapesManager : MonoBehaviour
 
     public void InitializeCandyAndSpawnPositions()
     {
+        // ensure any in-progress swaps/animations are stopped before we reinitialize
+        ResetBoardForReinitialization();
         InitializeVariables();
 
         if (shapes != null)
@@ -412,6 +460,15 @@ private IEnumerator FindMatchesAndCollapse(RaycastHit2D hit2)
     var hitGo2matchesInfo = shapes.GetMatches(hitGo2);
     var totalMatches = hitGomatchesInfo.MatchedCandy
         .Union(hitGo2matchesInfo.MatchedCandy).Distinct();
+
+    // Safety: sometimes a board-wide match can exist that the per-candy GetMatches
+    // calls miss (edge cases). Also check the full board and include any matches
+    // found there before deciding to undo the swap.
+    var boardWide = GetAllMatches();
+    if (boardWide != null)
+    {
+        totalMatches = totalMatches.Union(boardWide).Distinct();
+    }
 
     // Undo swap nếu không tạo match >=3
     if (totalMatches.Count() < Constants.MinimumMatches &&
@@ -1224,7 +1281,8 @@ private void CreateRainbowCandy(GameObject baseCandy)
     yield return new WaitForSeconds(Constants.MoveAnimationMinDuration * maxDistance);
 
     // start processing matches created by the cascade
-    StartCoroutine(ProcessBoardMatches());
+    ProcessBoardMatchesCoroutine = ProcessBoardMatches();
+    StartCoroutine(ProcessBoardMatchesCoroutine);
 }
 
 
